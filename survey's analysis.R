@@ -27,7 +27,7 @@ library(contrast)
 
 rm(list=ls())     # to clear current workspace
 
-setwd("C:\\Users\\yvann\\OneDrive\\Bureau\\Analysis_YN")
+setwd("D:\\Yvan_PhD\\PROJECTS\\QTEV\\Analysis_YN")
 
 df_survey <- read.csv2("Formulaires_csv.csv")
 # df_survey[is.na(df_survey)] = 0 # turn NA into 0 but I'm not sure it is useful for now so I'm removing it (+ it was not used already since the name of the df wa uncorrect (data_survey instead of df_survey))
@@ -81,7 +81,7 @@ df_survey_filt$Age <- replace_na(df_survey_filt$Age, mean(df_survey_filt$Age[!is
 
 
 #####################################################################################################
-########################### Extract Duration data for quick analysis with jasp #######################
+########################### Extract Duration data for quick analysis with jsp #######################
 #####################################################################################################
 
 # 1- extract the duration data and put them in the right format (min) 
@@ -93,8 +93,7 @@ df_dur <- select(df_survey_filt,
                  Time_min_num, 	# numerical estimation of elapsed dur. since departure (min)
                  Time_graphic, 	# graphical estimation of elapsed dur. (degree from 0 to 360)
                  Hour_3, 		    # objective timing when the estimation was done (hour)
-                 min_3,         # objective timing when the estimation was done (min)
-                 Direction)			    
+                 min_3)			    # objective timing when the estimation was done (min)
 
 # convert data
 df_dur["Rep_dur"] <-  df_dur$Hour_3            + (df_dur$min_3/60)    # convert response time in decimal hour to match the train data
@@ -103,15 +102,13 @@ df_dur["Dur_num"] <- (df_dur$Time_hour_num*60) + df_dur$Time_min_num 	# convert 
 df_dur["Dur_grh"] <- (df_dur$Time_graphic/360)*df_dur$Dur_tot			    # convert graphical duration estimation in min - (X°/360)* total duration estimated (in min) 
 df_dur["Obj_dur"] <- NA                                               # create an empty column for the objective duration
 df_dur["Obj_dur_tot"] <- NA                                           # create an empty column for the total objective duration
-df_dur$Direction[df_dur$Direction == 1] <- "FF"                       # convert direction into categorical data FF = Facing Forward
-df_dur$Direction[df_dur$Direction == 2] <- "FB"                       # convert direction into categorical data FB = Facing backward
 
-df_dur <- subset(df_dur, select = -c(Time_hour, Time_min, Time_hour_num, Time_min_num, Hour_3, min_3, Time_graphic)) # Remove unnecessary data 
+#df_dur <- subset(df_dur, select = -c(Time_hour, Time_min, Time_hour_num, Time_min_num, Hour_3, min_3)) # I don't know if I still need the graphical estimation in degree so I'm keeping it for now 
 
 # 2- extract the objective duration elapsed at the moment of estimation
 # loop over the number of participant then loop over the number of train file to find the one corresponding to the participant
 
-setwd("C:\\Users\\yvann\\OneDrive\\Bureau\\Analysis_YN\\GPS_data\\CSV_CLEAN") # go into train data directory
+setwd("D:\\Yvan_PhD\\PROJECTS\\QTEV\\Analysis_YN\\GPS_data\\CSV_CLEAN") # go into train data directory
 filenames <- list.files(pattern="*.csv", full.names=TRUE)	# get the list of files in the directory
 
 for (i in 1:nrow(df_survey_filt)) { # loop over the number of participants 
@@ -123,7 +120,14 @@ for (i in 1:nrow(df_survey_filt)) { # loop over the number of participants
       
       if (df_survey_filt$Date[i]==df_sncf$Jour.circulation[1]){ # Select the train data file with the corresponding date 
         
-        if (floor(df_sncf$Depart.theo.SAT[1]) < 14 && floor(df_survey_filt$Departure[i]) < 14) { # select the train data file with the corresponding time (by using the "partie entière" of the hour)
+        if (floor(df_sncf$Depart.theo.SAT[1])==floor(df_survey_filt$Departure[i])) { # select the train data file with the corresponding time (by using the "partie entière" of the hour)
+        
+          if (floor(df_sncf$Depart.theo.SAT[1]) > 14) { # the duration and cumulative distance for the train data of the afternoon are incorrect (because they were calculated from Lyon-Perrache), hence we recompute them here
+            
+            df_sncf$duration <- (c(0,cumsum(diff(df_sncf$Heure.franchissement))))*60
+            df_sncf$CumDist <- c(0,cumsum(diff(df_sncf$Distance)/1000))
+            
+          }
           
           idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(df_dur$Rep_dur[i],digits=2)) # get the index corresponding to the time of the response
           j <- idx[1]
@@ -135,237 +139,299 @@ for (i in 1:nrow(df_survey_filt)) { # loop over the number of participants
           
           df_dur$Obj_dur[i] <- df_sncf$duration[j]
           
-          df_dur$Obj_dur_tot[i] <- df_sncf$duration[nrow(df_sncf)] # for now it will not work for every one but I think that my while loop down below is not appreciated by my pc
+          flag = 0
+          while (is.na(df_dur$Obj_dur_tot[i])) {
+            df_dur$Obj_dur_tot[i] <- df_sncf$duration[nrow(df_sncf) + flag]
+            flag = flag + 1
+          }
+        }
+      }
+    }
+}
+
+###################################################################################################
+################################# Duration as a function of travel time ###########################
+###################################################################################################
+
+#DEPARTURE HOUR
+data_departure <- select(df_survey,Departure.hour,Departure.min)
+data_departure["Departure"] <- data_departure$Departure.hour+(data_departure$Departure.min/60)
+
+
+setwd("C:/Users/smile/OneDrive/M1 NEUROSCIENCES/Master 1/Stage/Stage 3/Distance and duration tables")
+"D:\\Yvan_PhD\\PROJECTS\\QTEV\\Analysis_YN\\GPS_data\\CSV"
+
+filenames <- list.files(pattern="*.csv", full.names=TRUE)
+
+##duration
+comparison_duration <- data.frame(matrix(ncol = 7, nrow = 0))
+colnames(comparison_duration) <- c('Real', 'Estimated num','Estimated gr', 'Real ratio','Estimated ratio','Estimated total','Real total')
+
+
+for (i in 1:nrow(df_survey)) { # loop over the number of participants ?
+
+  for (k in 1:length(filenames)) { # loop over the train data file?deri 
+  name <- filenames[k]
+  df_sncf <- read.csv(filenames[k], sep = ",")
+  df_sncf[is.na(df_sncf)] = 0
+
+    if (df_survey$Date[i]==df_sncf$Jour.circulation[1]){
+
+      if (round(df_sncf$Depart.theo.SAT[1],digits=3)==round(data_departure$Departure[i],digits=3)) { 
+
+      ##DURATION
+        if (is.na(data_duration$`Time duration`[i])) {
+          data_duration$`Time duration`[i] <- 0
+          }
+
+        else { 
           
-          # flag = 0
-          # while (is.na(df_dur$Obj_dur_tot[i])) {
-          #   df_dur$Obj_dur_tot[i] <- df_sncf$duration[nrow(df_sncf) + flag]
-          #   flag = flag + 1
-          # }
+          idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(data_duration$`Time duration`[i],digits=2))
+          j <- idx[1]
+          if (is.na(j)){
+            idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(data_duration$`Time duration`[i],digits=1))
+            j <- idx[1]            }
+          #if the time t1 the passenger responded matches the time t2 on the data train
+          Du <- data.frame(df_sncf$duration[j],data_duration$`Time num`[i],data_duration$`Time gr`[i],df_sncf$`Ratio.duration`[j],data_duration$`Time ratio`[i],data_duration$`Time`[i],df_sncf$duration[nrow(df_sncf)])
+          names(Du) <- c('Real', 'Estimated num','Estimated gr', 'Real ratio','Estimated ratio','Estimated total', 'Real total')
+          comparison_duration <- rbind(comparison_duration,Du)
+
+        }
+        }
+      }
+    }
+}
+
+
+comparison_duration[is.na(comparison_duration)] = 0
+comparison_duration["Subjective deviation"] <- (comparison_duration$`Estimated num`-comparison_duration$Real)/comparison_duration$Real
+plot(density(comparison_duration$'Subjective deviation'))
+
+
+ggscatter(comparison_duration, x = "Real", y = "Estimated num", add = "reg.line") +
+  stat_cor(label.x = 0.5, label.y = 2) +
+  stat_regline_equation(label.x =0.5, label.y = 1.7)+
+  theme_light()+
+  labs(x='Real duration', y='Estimated numeric duration', title='Numeric time estimation since departure')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='red3')
+
+ggscatter(comparison_duration, x = "Real", y = "Estimated gr", add = "reg.line") +
+  stat_cor(label.x = 0.5, label.y = 2) +
+  stat_regline_equation(label.x =0.5, label.y = 1.7)+
+  theme_light()+
+  labs(x='Real duration', y='Estimated graphical duration', title='Graphical time estimation since departure')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='purple3')
+
+ggscatter(comparison_duration, x = "Real ratio", y = "Estimated ratio", add = "reg.line") +
+  stat_cor(label.x = 25, label.y = 90) +
+  stat_regline_equation(label.x =25, label.y = 80)+
+  theme_light()+
+  labs(x='Real duration ratio', y='Estimated duration ratio', title='Graphical time estimation ratio since departure')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='pink3')
+
+ggscatter(comparison_duration, x = "Real total", y = "Estimated total", add = "reg.line") +
+  stat_cor(label.x = 2, label.y = 5.5) +
+  stat_regline_equation(label.x =2, label.y = 4.5)+
+  theme_light()+
+  labs(x='Real total duration', y='Estimated total duration', title='Numeric total time estimation')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='green3')
+t.test(comparison_duration$"Real total",comparison_duration$"Estimated total")
+#t = -1.7767, df = 86.021, p-value = 0.07915
+#no significant difference
+
+
+#############################################################################
+################################ DISTANCE ##############################
+##########################################################################
+
+setwd("C:/Users/smile/OneDrive/M1 NEUROSCIENCES/Master 1/Stage/Stage 3/Distance and duration tables")
+
+filenames <- list.files(pattern="*.csv", full.names=TRUE)
+
+##distance
+comparison_dist <- data.frame(matrix(ncol = 7, nrow = 0))
+colnames(comparison_dist) <- c('Real', 'Estimated num','Estimated gr', 'Real ratio','Estimated ratio','Estimated total', 'Real total')
+
+for (i in 1:nrow(df_survey)) {
+  
+  for (k in 1:length(filenames)) {
+    name <- filenames[k]
+    df_sncf <- read.csv(filenames[k], sep = ",")
+    df_sncf[is.na(df_sncf)] = 0
+    
+    if (df_survey$Date[i]==df_sncf$Jour.circulation[1]){
+      
+      if (round(df_sncf$Depart.theo.SAT[1],digits=3)==round(data_departure$Departure[i],digits=3)) { 
+        
+        ##DISTANCE
+        if (is.na(data_dist$`Time dist`[i])) {
+          data_dist$`Time dist`[i] <- 0
         }
         
-          if (floor(df_sncf$Depart.theo.SAT[1]) > 14 && floor(df_survey_filt$Departure[i]) > 14) { # select the train data file with the corresponding time (by using the "partie entière" of the hour and to contrast the morning vs afternoon)
-            
-            # the duration and cumulative distance for the train data of the afternoon are incorrect (because they were calculated from Lyon-Perrache), hence we recompute them here
-              
-            df_sncf$duration <- (c(0,cumsum(diff(df_sncf$Heure.franchissement))))*60
-            df_sncf$CumDist <- c(0,cumsum(diff(df_sncf$Distance)/1000))
-            
-            idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(df_dur$Rep_dur[i],digits=2)) # get the index corresponding to the time of the response
-            j <- idx[1]
-            
-            if (is.na(j)){ # if for whatever reason the corresponding time is not found
-              idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(df_dur$Rep_dur[i],digits=1))
-              j <- idx[1]            
+        else { 
+          
+          idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(data_dist$`Time dist`[i],digits=2))
+          j <- idx[1]
+          if (is.na(j)){
+            idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(data_dist$`Time dist`[i],digits=1))
+            j <- idx[1]            }
+          #if the time t1 the passenger responded matches the time t2 on the data train
+          Di <- data.frame(df_sncf$Distance[j],data_dist$Dist.num[i],data_dist$`Dist gr`[i],df_sncf$`Ratio.dist`[j],data_dist$`Dist ratio`[i],data_dist$`Dist`[i],df_sncf$Distance[nrow(df_sncf)])
+          names(Di) <- c('Real', 'Estimated num','Estimated gr', 'Real ratio','Estimated ratio','Estimated total', 'Real total')
+          comparison_dist <- rbind(comparison_dist,Di)
+          
+        }
+      }
+    }
+  }
+}
+
+
+comparison_dist[is.na(comparison_dist)] = 0
+comparison_dist["Subjective deviation"] <- (comparison_dist$`Estimated num`-comparison_dist$Real)/comparison_dist$Real
+plot(density(comparison_dist$'Subjective deviation'))
+
+ggscatter(comparison_dist, x = "Real", y = "Estimated num", add = "reg.line") +
+  stat_cor(label.x = 0, label.y = 600) +
+  stat_regline_equation(label.x =0, label.y = 500)+
+  theme_light()+
+  labs(x='Real distance', y='Estimated numeric distance', title='Numeric distance estimation since departure')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='red3')
+
+ggscatter(comparison_dist, x = "Real", y = "Estimated gr", add = "reg.line") +
+  stat_cor(label.x = 0, label.y = 600) +
+  stat_regline_equation(label.x =0, label.y = 500)+
+  theme_light()+
+  labs(x='Real distance', y='Estimated graphical distance', title='Graphical distance estimation since departure')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='purple3')
+
+ggscatter(comparison_dist, x = "Real ratio", y = "Estimated ratio", add = "reg.line") +
+  stat_cor(label.x = 25, label.y = 90) +
+  stat_regline_equation(label.x =25, label.y = 80)+
+  theme_light()+
+  labs(x='Real distance ratio', y='Estimated distance ratio', title='Graphical distance estimation ratio since departure')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='pink3')
+
+ggscatter(comparison_dist, x = "Real total", y = "Estimated total", add = "reg.line") +
+  stat_cor(label.x = 430, label.y = 700) +
+  stat_regline_equation(label.x =430, label.y = 650)+
+  theme_light()+
+  labs(x='Real total distance', y='Estimated total distance', title='Numeric total distance estimation')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='green3')
+t.test(comparison_dist$"Real total",comparison_dist$"Estimated total")
+#t = -1.352, df = 86.068, p-value = 0.1799
+#no significant difference
+
+
+
+#############################################################################
+################################ SPEED ####################################
+##########################################################################
+
+setwd("C:/Users/smile/OneDrive/M1 NEUROSCIENCES/Master 1/Stage/Stage 3/Distance and duration tables")
+
+filenames <- list.files(pattern="*.csv", full.names=TRUE)
+
+##speed
+comparison_speed <- data.frame(matrix(ncol = 8, nrow = 0))
+colnames(comparison_speed) <- c('Real', 'Estimated inst num','Estimated inst gr','Max speed', 'Real average speed','Real max speed','Estimated av num','Estimated av gr')
+
+data_speed[is.na(data_speed)]=0
+
+
+for (i in 1:nrow(df_survey)) {
+  
+  for (k in 1:length(filenames)) {
+    name <- filenames[k]
+    df_sncf <- read.csv(filenames[k], sep = ",")
+    df_sncf[is.na(df_sncf)] = 0
+    
+    if (df_survey$Date[i]==df_sncf$Jour.circulation[1]){
+      
+      if (round(df_sncf$Depart.theo.SAT[1],digits=3)==round(data_departure$Departure[i],digits=3)) { 
+        
+        ##SPEED
+        if (is.na(data_speed$`Time speed`[i])) {
+          data_speed$`Time speed`[i] <- 0
+        }
+        
+        else { 
+          
+          idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(data_speed$`Time speed`[i],digits=2))
+          j <- idx[1]
+          if (is.na(j)){
+            idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(data_speed$`Time speed`[i],digits=1))
+            j <- idx[1]            
             }
-            
-            df_dur$Obj_dur[i] <- df_sncf$duration[j]
-            
-            df_dur$Obj_dur_tot[i] <- df_sncf$duration[nrow(df_sncf)] # for now it will not work for every one but I think that my while loop down below is not appreciated by my pc
-            
-            # flag = 0
-            # while (is.na(df_dur$Obj_dur_tot[i])) {
-            #   df_dur$Obj_dur_tot[i] <- df_sncf$duration[nrow(df_sncf) + flag]
-            #   flag = flag + 1
-            # }
-        }
-      }
-    }
-}
-
-df_dur["ER_num"] <- df_dur$Dur_num - df_dur$Obj_dur
-df_dur["RE_num"] <- df_dur$Dur_num / df_dur$Obj_dur
-df_dur["ER_grh"] <- df_dur$Dur_grh - df_dur$Obj_dur
-df_dur["RE_grh"] <- df_dur$Dur_grh / df_dur$Obj_dur
-df_dur["Speed_Episode"] <- NA
-df_dur$Speed_Episode[df_dur$Obj_dur <= "mean duration of acceleration phase" ]                <- "acc" # sill need to compute it with the script identify_speed_episode
-df_dur$Speed_Episode[df_dur$Obj_dur > "mean duration of acceleration phase" && df_dur$Obj_dur <- "mean duration of constant phase" ] <- "cst"# sill need to compute it with the script identify_speed_episode
-df_dur$Speed_Episode[df_dur$Obj_dur >= "mean duration of  constant phase" ]                   <- "dec" # sill need to compute it with the script identify_speed_episode
-
-# Saving the file to be used in jasp
-write.csv(df_dur, "C:\\Users\\yvann\\OneDrive\\Bureau\\Analysis_YN\\Duration_jsp.csv")
-
-#####################################################################################################
-########################### Extract Distance data for quick analysis with jasp ######################
-#####################################################################################################
-
-# 1- extract the duration data and put them in the right format (min) 
-# extract data
-
-df_dist <- select(df_survey_filt, 
-                 Distance, 		  # knowledge or best guess of the total dist. of the travel (km)
-                 Dist_num,      # numerical estimation of elapsed dist. since departure (km)
-                 Dist_graph, 	  # numerical estimation of elapsed dist. since departure (cm)
-                 Hour_4, 		    # objective timing when the estimation was done (hour)
-                 min_4)			    # objective timing when the estimation was done (min)
-
-# convert data
-df_dist["Rep_dist"] <-  df_dist$Hour_4    + (df_dist$min_4/60)          # convert response time in decimal hour to match the train data
-df_dist["Dist_grh"] <- (df_dist$Dist_graph/6.3)*df_dist$Distance			  # convert graphical distance estimation in min - (X°/6.3)* total duration estimated (in km) 
-df_dist["Obj_dist"] <- NA                                               # create an empty column for the objective distance
-df_dist["Obj_dist_tot"] <- NA                                           # create an empty column for the total objective distance
-
-
-# 2- extract the objective distance elapsed at the moment of estimation
-# loop over the number of participant then loop over the number of train file to find the one corresponding to the participant
-
-setwd("C:\\Users\\yvann\\OneDrive\\Bureau\\Analysis_YN\\GPS_data\\CSV_CLEAN") # go into train data directory
-filenames <- list.files(pattern="*.csv", full.names=TRUE)	# get the list of files in the directory
-
-for (i in 1:nrow(df_survey_filt)) { # loop over the number of participants 
-  
-  for (k in 1:length(filenames)) { # loop over the number of train data file
-    
-    name <- filenames[k]
-    df_sncf <- read_csv(name)
-    
-    if (df_survey_filt$Date[i]==df_sncf$Jour.circulation[1]){ # Select the train data file with the corresponding date 
-      
-      if (floor(df_sncf$Depart.theo.SAT[1]) < 14 && floor(df_survey_filt$Departure[i]) < 14) { # select the train data file with the corresponding time (by using the "partie entière" of the hour)
-        
-        idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(df_dist$Rep_dist[i],digits=2)) # get the index corresponding to the time of the response
-        j <- idx[1]
-        
-        if (is.na(j)){ # if for whatever reason the corresponding time is not found
-          idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(df_dist$Rep_dist[i],digits=1))
-          j <- idx[1]            
-        }
-        
-        df_dist$Obj_dist[i] <- df_sncf$CumDist[j]
-        
-        df_dist$Obj_dist_tot[i] <- df_sncf$CumDist[nrow(df_sncf)] # for now it will not work for every one but I think that my while loop down below is not appreciated by my pc
-        
-        # flag = 0
-        # while (is.na(df_dur$Obj_dur_tot[i])) {
-        #   df_dur$Obj_dur_tot[i] <- df_sncf$duration[nrow(df_sncf) + flag]
-        #   flag = flag + 1
-        # }
-      }
-      
-      if (floor(df_sncf$Depart.theo.SAT[1]) > 14 && floor(df_survey_filt$Departure[i]) > 14) { # select the train data file with the corresponding time (by using the "partie entière" of the hour and to contrast the morning vs afternoon)
-        
-        # the duration and cumulative distance for the train data of the afternoon are incorrect (because they were calculated from Lyon-Perrache), hence we recompute them here
+          #if the time t1 the passenger responded matches the time t2 on the data train
+          Sp <- data.frame(df_sncf$Vitesse[j],data_speed$Inst.Speed.num[i],data_speed$Inst.Sp.Gr[i],data_speed$`Max.speed`[i],mean(df_sncf$Vitesse),max(df_sncf$Vitesse),data_speed$Av.speed.num[i],data_speed$Av.Sp.Gr[i])
+          names(Sp) <- c('Real', 'Estimated inst num','Estimated inst gr','Max speed', 'Real average speed','Real max speed','Estimated av num','Estimated av gr')
+          comparison_speed <- rbind(comparison_speed,Sp)
           
-        df_sncf$duration <- (c(0,cumsum(diff(df_sncf$Heure.franchissement))))*60
-        df_sncf$CumDist <- c(0,cumsum(diff(df_sncf$Distance)/1000))
-        
-        idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(df_dist$Rep_dist[i],digits=2)) # get the index corresponding to the time of the response
-        j <- idx[1]
-        
-        if (is.na(j)){ # if for whatever reason the corresponding time is not found
-          idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(df_dist$Rep_dist[i],digits=1))
-          j <- idx[1]            
         }
-        
-        df_dist$Obj_dist[i] <- df_sncf$CumDist[j]
-        
-        df_dist$Obj_dist_tot[i] <- df_sncf$CumDist[nrow(df_sncf)] # for now it will not work for every one but I think that my while loop down below is not appreciated by my pc
-        
-        # flag = 0
-        # while (is.na(df_dur$Obj_dur_tot[i])) {
-        #   df_dur$Obj_dur_tot[i] <- df_sncf$duration[nrow(df_sncf) + flag]
-        #   flag = flag + 1
-        # }
       }
     }
   }
 }
 
-# Saving the file to be used in jasp
-write.csv(df_dist, "C:\\Users\\yvann\\OneDrive\\Bureau\\Analysis_YN\\Distance_jsp.csv")
 
-#####################################################################################################
-########################### Extract Speed data for quick analysis with jasp #########################
-#####################################################################################################
+comparison_speed[is.na(comparison_speed)] = 0
+comparison_speed["Subjective deviation"] <- (comparison_speed$`Estimated inst num` -comparison_speed$Real)/comparison_speed$Real
+plot(density(comparison_speed$'Subjective deviation'))
 
-# 1- extract the duration data and put them in the right format (min) 
-# extract data
 
-df_spd <- select(df_survey_filt, 
-                  Max_speed, 		  # knowledge or best guess of the maximal speed of the travel (km/h)
-                  Inst_Speed_num, # numerical estimation of instantaneous speed (km/h)
-                  Inst_Speed_graphic, # graphic estimation of instantaneous speed in degree (max is 180°)
-                  Av_speed_num, 	  # numerical estimation of average speed since departure (km/h)
-                  Av_speed_graphic, # graphic estimation of average speed since departure (km/h)
-                  Hour_2, 		    # objective timing when the estimation was done (hour)
-                  min_2)			    # objective timing when the estimation was done (min)
+comparison_speed1 <- select(comparison_speed,Real,'Estimated inst num')
+comparison_speed1 <- comparison_speed1[apply(comparison_speed1, 1, function(row) all(row !=0 )), ]
 
-# convert data
-df_spd["Rep_spd"] <-  df_spd$Hour_2    + (df_spd$min_2/60)          # convert response time in decimal hour to match the train data
-df_spd["Inst_Spd_grh"] <- (df_spd$Inst_Speed_graphic/180)*df_spd$Max_speed		# convert graphical instantaneous speed estimation in km/h - (X°/180)* total speed estimated (in km/h) 
-df_spd["Ave_Spd_grh"] <- (df_spd$Av_speed_graphic/180)*df_spd$Max_speed			  # convert graphical average speed estimation in km/h - (X°/180)* total speed estimated (in km/h) 
-df_spd["Obj_inst_spd"] <- NA                                                  # create an empty column for the objective inst. speed
-df_spd["Obj_ave_spd"] <- NA                                                   # create an empty column for the objective ave. speed
-df_spd["Obj_max_spd"] <- NA                                                   # create an empty column for the maximum speed
+ggscatter(comparison_speed1, x = "Real", y = "Estimated inst num", add = "reg.line") +
+  stat_cor(label.x = 0, label.y = 350) +
+  stat_regline_equation(label.x =0, label.y = 300)+
+  theme_light()+
+  labs(x='Real speed', y='Estimated numeric speed', title='Instantaneous numeric speed estimation')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='red3')
 
-# 2- extract the objective speed at the moment of estimation
-# loop over the number of participant then loop over the number of train file to find the one corresponding to the participant
 
-setwd("C:\\Users\\yvann\\OneDrive\\Bureau\\Analysis_YN\\GPS_data\\CSV_CLEAN") # go into train data directory
-filenames <- list.files(pattern="*.csv", full.names=TRUE)	# get the list of files in the directory
+comparison_speed2 <- select(comparison_speed,Real,'Estimated inst gr')
+comparison_speed2 <- comparison_speed2[apply(comparison_speed2, 1, function(row) all(row !=0 )), ]
 
-for (i in 1:nrow(df_survey_filt)) { # loop over the number of participants 
-  
-  for (k in 1:length(filenames)) { # loop over the number of train data file
-    
-    name <- filenames[k]
-    df_sncf <- read_csv(name)
-    
-    # compute mean speed that was missing untile now
-    df_sncf["Ave_speed"] <- NA
-    m_speed = 0
-    
-    for (x in 1:nrow(df_sncf)) {
-      m_speed <- (m_speed + df_sncf$Vitesse[x])/x
-      df_sncf$Ave_speed[x] <- m_speed 
-    }
-    
-    if (df_survey_filt$Date[i]==df_sncf$Jour.circulation[1]){ # Select the train data file with the corresponding date 
-      
-      if (floor(df_sncf$Depart.theo.SAT[1]) < 14 && floor(df_survey_filt$Departure[i]) < 14) { # select the train data file with the corresponding time (by using the "partie entière" of the hour)
-        
-        idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(df_spd$Rep_spd[i],digits=2)) # get the index corresponding to the time of the response
-        j <- idx[1]
-        
-        if (is.na(j)){ # if for whatever reason the corresponding time is not found
-          idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(df_spd$Rep_spd[i],digits=1))
-          j <- idx[1]            
-        }
-        
-        df_spd$Obj_inst_spd[i] <- df_sncf$Vitesse[j]
-        
-        df_spd$Obj_ave_spd[i] <- df_sncf$Ave_speed[j]
-        
-        df_spd$Obj_max_spd[i] <- max(df_sncf$Vitesse)
-      }
-      
-      if (floor(df_sncf$Depart.theo.SAT[1]) > 14 && floor(df_survey_filt$Departure[i]) > 14) { # select the train data file with the corresponding time (by using the "partie entière" of the hour and to contrast the morning vs afternoon)
-        
-        # the duration and cumulative distance for the train data of the afternoon are incorrect (because they were calculated from Lyon-Perrache), hence we recompute them here
-        
-        df_sncf$duration <- (c(0,cumsum(diff(df_sncf$Heure.franchissement))))*60
-        df_sncf$CumDist <- c(0,cumsum(diff(df_sncf$Distance)/1000))
-        
-        idx <- which(round(df_sncf$Heure.franchissement,digits=2) %in% round(df_spd$Rep_spd[i],digits=2)) # get the index corresponding to the time of the response
-        j <- idx[1]
-        
-        if (is.na(j)){ # if for whatever reason the corresponding time is not found
-          idx <- which(round(df_sncf$Heure.franchissement,digits=1) %in% round(df_spd$Rep_spd[i],digits=1))
-          j <- idx[1]            
-        }
-        
-        df_spd$Obj_inst_spd[i] <- df_sncf$Vitesse[j]
-        
-        df_spd$Obj_ave_spd[i] <- df_sncf$Ave_speed[j]
-        
-        df_spd$Obj_max_spd[i] <- max(df_sncf$Vitesse)
-      }
-    }
-  }
-}
+ggscatter(comparison_speed2, x = "Real", y = "Estimated inst gr", add = "reg.line") +
+  stat_cor(label.x = 0, label.y = 350) +
+  stat_regline_equation(label.x =0, label.y = 300)+
+  theme_light()+
+  labs(x='Real speed', y='Estimated graphical speed', title='Instantaneous graphical speed estimation')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='purple3')
 
-# Saving the file to be used in jasp
-write.csv(df_spd, "C:\\Users\\yvann\\OneDrive\\Bureau\\Analysis_YN\\Speed_jsp.csv")
+
+comparison_speed3 <- select(comparison_speed,'Real average speed','Estimated av num')
+comparison_speed3 <- comparison_speed3[apply(comparison_speed3, 1, function(row) all(row !=0 )), ]
+
+ggscatter(comparison_speed3, x = 'Real average speed', y = "Estimated av num", add = "reg.line") +
+  stat_cor(label.x = 205, label.y = 350) +
+  stat_regline_equation(label.x =205, label.y = 300)+
+  theme_light()+
+  labs(x='Real average speed', y='Estimated numeric speed', title='Average numeric speed estimation')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='red3')
+
+comparison_speed4 <- select(comparison_speed,'Real average speed','Estimated av gr')
+comparison_speed4 <- comparison_speed4[apply(comparison_speed4, 1, function(row) all(row !=0 )), ]
+
+ggscatter(comparison_speed4, x = 'Real average speed', y = "Estimated av gr", add = "reg.line") +
+  stat_cor(label.x = 205, label.y = 350) +
+  stat_regline_equation(label.x = 205, label.y = 300)+
+  theme_light()+
+  labs(x='Real average speed', y='Estimated graphical speed', title='Average graphical speed estimation')+
+  geom_smooth(formula = 'y ~ x',method='lm', se=FALSE, color='purple3')
+
+
+ggplot(comparison_speed,aes(x=comparison_speed$'Max speed')) +
+  geom_density()
+
+p <- plot(density(comparison_speed$'Max speed'))
+
+
+t.test(comparison_speed$"Real max speed",comparison_speed$"Max speed")
+#t = 1.8326, df = 86.039, p-value = 0.07033
+#no significant difference
 
 ##################################################################################################
 ############################### RELATIONSHIP BETWEEN PARAMETERS #################################
